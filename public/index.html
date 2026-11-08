@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Silver Dot AI 3000</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial;background:#0f0f12;color:#fff;display:flex;height:100vh}
+.side{width:260px;background:#17171c;padding:12px;display:flex;flex-direction:column;gap:10px}
+.side h2{font-size:18px;margin:0}.side button{background:#2a2a33;color:#fff;border:0;padding:10px;border-radius:8px;cursor:pointer}
+.side button:hover{background:#3a3a48}.chats{flex:1;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.chat{padding:10px;border-radius:8px;cursor:pointer;background:#22222b;display:flex;justify-content:space-between}
+.chat.active{background:#3a3a48}.chat span{color:#ff6666;cursor:pointer}
+.main{flex:1;display:flex;flex-direction:column}.top{padding:12px 16px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center}
+#msgs{flex:1;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+.msg{max-width:80%;padding:12px 14px;border-radius:12px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
+.user{background:#2a6df4;align-self:flex-end}.ai{background:#22222b;align-self:flex-start}
+pre{background:#000;padding:12px;border-radius:8px;overflow:auto}code{font-family:monospace}
+.box{padding:14px;display:flex;gap:10px;border-top:1px solid #333}
+input{flex:1;padding:12px;border-radius:10px;border:1px solid #444;background:#1c1c22;color:#fff;outline:none}
+.send{background:#fff;color:#000;border:0;padding:12px 18px;border-radius:10px;font-weight:bold;cursor:pointer}
+#auth{position:fixed;inset:0;background:#0f0f12;display:flex;align-items:center;justify-content:center;z-index:10}
+.card{background:#1c1c22;padding:24px;border-radius:14px;width:340px;display:flex;flex-direction:column;gap:10px}
+.card h1{margin:0;text-align:center}.card input{width:100%}.card button{padding:12px;border-radius:10px;border:0;background:#fff;font-weight:bold;cursor:pointer}
+.link{color:#8ab4ff;cursor:pointer;text-align:center;font-size:13px}
+@media(max-width:700px){.side{display:none}}
+</style>
+</head>
+<body>
+<div class="side"><h2>✦ Silver Dot AI 3000</h2><button onclick="newChat()">+ New Chat</button><div class="chats" id="list"></div><div id="me" style="font-size:12px;color:#aaa"></div><button onclick="logout()">Logout</button></div>
+<div class="main"><div class="top"><b>Silver Dot AI 3000</b><span id="plan"></span></div><div id="msgs"></div><div class="box"><input id="inp" placeholder="Ask anything..."><button class="send" onclick="send()">Send</button></div></div>
+<div id="auth"><div class="card"><h1>✦ Silver Dot AI 3000</h1><p style="text-align:center;color:#aaa;margin:0">Login to continue</p><input id="email" placeholder="Email"><input id="pass" type="password" placeholder="Password (8+ chars)"><button onclick="doAuth()">Continue</button><div class="link" onclick="toggle()">New here? Create account</div><div id="err" style="color:#ff6666;text-align:center"></div></div></div>
+<script>
+let mode='login', token=localStorage.getItem('sd_token')||'', chatId=null;
+function toggle(){mode=mode==='login'?'signup':'login';document.querySelector('.link').textContent=mode==='login'?'New here? Create account':'Already have account? Login';}
+async function doAuth(){
+  const email=document.getElementById('email').value, password=document.getElementById('pass').value;
+  const r=await fetch('/api/'+(mode==='login'?'login':'signup'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+  const d=await r.json(); if(!r.ok){document.getElementById('err').textContent=d.error;return;}
+  token=d.token; localStorage.setItem('sd_token',token); init();
+}
+function logout(){localStorage.removeItem('sd_token');location.reload();}
+async function init(){
+  const r=await fetch('/api/me',{headers:{Authorization:'Bearer '+token}});
+  if(!r.ok){document.getElementById('auth').style.display='flex';return;}
+  const d=await r.json(); document.getElementById('auth').style.display='none';
+  document.getElementById('me').textContent=d.email; document.getElementById('plan').textContent=d.plan+' | Used '+d.used+' / '+d.limit;
+  loadChats();
+}
+async function loadChats(){
+  const r=await fetch('/api/chats',{headers:{Authorization:'Bearer '+token}}); const cs=await r.json();
+  document.getElementById('list').innerHTML=cs.map(c=>`<div class="chat ${c.id===chatId?'active':''}" onclick="openChat(${c.id})"><b>${c.title||'Chat'}</b><span onclick="event.stopPropagation();delChat(${c.id})">✕</span></div>`).join('');
+}
+async function delChat(id){await fetch('/api/chats/'+id,{method:'DELETE',headers:{Authorization:'Bearer '+token}}); if(chatId===id) newChat(); loadChats();}
+function newChat(){chatId=null;document.getElementById('msgs').innerHTML='';loadChats();}
+async function openChat(id){chatId=id;const r=await fetch('/api/chats/'+id,{headers:{Authorization:'Bearer '+token}});const ms=await r.json();document.getElementById('msgs').innerHTML='';ms.forEach(m=>addMsg(m.role,m.content));loadChats();}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+function fmt(s){return esc(s).replace(/```(\w*)\n([\s\S]*?)```/g,(m,l,c)=>`<pre><code>${c}</code></pre><button onclick="navigator.clipboard.writeText(this.previousElementSibling.innerText)">Copy Code</button>`).replace(/`([^`]+)`/g,'<code>$1</code>');}
+function addMsg(role,txt){const d=document.createElement('div');d.className='msg '+(role==='user'?'user':'ai');d.innerHTML=fmt(txt);document.getElementById('msgs').appendChild(d);document.getElementById('msgs').scrollTop=1e9;return d;}
+async function send(){
+  const inp=document.getElementById('inp');const text=inp.value.trim();if(!text)return;inp.value='';addMsg('user',text);
+  const el=addMsg('assistant','...');let full='';
+  const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({message:text,chatId})});
+  if(!r.ok){const d=await r.json();el.innerHTML=d.error;return;}
+  chatId=+r.headers.get('X-Chat-Id');const reader=r.body.getReader();const dec=new TextDecoder();
+  while(true){const {done,value}=await reader.read();if(done)break;full+=dec.decode(value);el.innerHTML=fmt(full);}
+  loadChats();
+}
+document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+if(token) init(); else document.getElementById('auth').style.display='flex';
+</script>
+</body>
+</html>
