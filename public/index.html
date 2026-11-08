@@ -19,52 +19,37 @@ pre{background:#000;padding:12px;border-radius:8px;overflow:auto}code{font-famil
 .box{padding:14px;display:flex;gap:10px;border-top:1px solid #333}
 input{flex:1;padding:12px;border-radius:10px;border:1px solid #444;background:#1c1c22;color:#fff;outline:none}
 .send{background:#fff;color:#000;border:0;padding:12px 18px;border-radius:10px;font-weight:bold;cursor:pointer}
-#auth{position:fixed;inset:0;background:#0f0f12;display:flex;align-items:center;justify-content:center;z-index:10}
-.card{background:#1c1c22;padding:24px;border-radius:14px;width:340px;display:flex;flex-direction:column;gap:10px}
-.card h1{margin:0;text-align:center}.card input{width:100%}.card button{padding:12px;border-radius:10px;border:0;background:#fff;font-weight:bold;cursor:pointer}
-.link{color:#8ab4ff;cursor:pointer;text-align:center;font-size:13px}
 @media(max-width:700px){.side{display:none}}
 </style>
 </head>
 <body>
-<div class="side"><h2>✦ Silver Dot AI 3000</h2><button onclick="newChat()">+ New Chat</button><div class="chats" id="list"></div><div id="me" style="font-size:12px;color:#aaa"></div><button onclick="logout()">Logout</button></div>
+<div class="side"><h2>✦ Silver Dot AI 3000</h2><button onclick="newChat()">+ New Chat</button><div class="chats" id="list"></div><div id="me" style="font-size:12px;color:#aaa">Guest</div><button onclick="logout()">Logout</button></div>
 <div class="main"><div class="top"><b>Silver Dot AI 3000</b><span id="plan"></span></div><div id="msgs"></div><div class="box"><input id="inp" placeholder="Ask anything..."><button class="send" onclick="send()">Send</button></div></div>
-<div id="auth"><div class="card"><h1>✦ Silver Dot AI 3000</h1><p style="text-align:center;color:#aaa;margin:0">Login to continue</p><input id="email" placeholder="Email"><input id="pass" type="password" placeholder="Password (8+ chars)"><button onclick="doAuth()">Continue</button><div class="link" onclick="toggle()">New here? Create account</div><div id="err" style="color:#ff6666;text-align:center"></div></div></div>
 <script>
-let mode='login', token='guest', chatId=null;
-function toggle(){mode=mode==='login'?'signup':'login';document.querySelector('.link').textContent=mode==='login'?'New here? Create account':'Already have account? Login';}
-async function doAuth(){
-  const email=document.getElementById('email').value, password=document.getElementById('pass').value;
-  const r=await fetch('/api/'+(mode==='login'?'login':'signup'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
-  const d=await r.json(); if(!r.ok){document.getElementById('err').textContent=d.error;return;}
-  token=d.token; localStorage.setItem('sd_token',token); init();
-}
+let chatId=null;
 function logout(){return;}
-async function init(){
-  document.getElementById('auth').style.display='none';
-  return;
-}
+async function init(){ loadChats(); }
 async function loadChats(){
-  const r=await fetch('/api/chats',{headers:{Authorization:'Bearer '+token}}); const cs=await r.json();
+  const r=await fetch('/api/chats'); const cs=await r.json();
   document.getElementById('list').innerHTML=cs.map(c=>`<div class="chat ${c.id===chatId?'active':''}" onclick="openChat(${c.id})"><b>${c.title||'Chat'}</b><span onclick="event.stopPropagation();delChat(${c.id})">✕</span></div>`).join('');
 }
-async function delChat(id){await fetch('/api/chats/'+id,{method:'DELETE',headers:{Authorization:'Bearer '+token}}); if(chatId===id) newChat(); loadChats();}
+async function delChat(id){await fetch('/api/chats/'+id,{method:'DELETE'}); if(chatId===id) newChat(); loadChats();}
 function newChat(){chatId=null;document.getElementById('msgs').innerHTML='';loadChats();}
-async function openChat(id){chatId=id;const r=await fetch('/api/chats/'+id,{headers:{Authorization:'Bearer '+token}});const ms=await r.json();document.getElementById('msgs').innerHTML='';ms.forEach(m=>addMsg(m.role,m.content));loadChats();}
+async function openChat(id){chatId=id;const r=await fetch('/api/chats/'+id);const ms=await r.json();document.getElementById('msgs').innerHTML='';ms.forEach(m=>addMsg(m.role,m.content));loadChats();}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
 function fmt(s){return esc(s).replace(/```(\w*)\n([\s\S]*?)```/g,(m,l,c)=>`<pre><code>${c}</code></pre><button onclick="navigator.clipboard.writeText(this.previousElementSibling.innerText)">Copy Code</button>`).replace(/`([^`]+)`/g,'<code>$1</code>');}
 function addMsg(role,txt){const d=document.createElement('div');d.className='msg '+(role==='user'?'user':'ai');d.innerHTML=fmt(txt);document.getElementById('msgs').appendChild(d);document.getElementById('msgs').scrollTop=1e9;return d;}
 async function send(){
   const inp=document.getElementById('inp');const text=inp.value.trim();if(!text)return;inp.value='';addMsg('user',text);
   const el=addMsg('assistant','...');let full='';
-  const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({message:text,chatId})});
+  const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,chatId})});
   if(!r.ok){const d=await r.json();el.innerHTML=d.error;return;}
   chatId=+r.headers.get('X-Chat-Id');const reader=r.body.getReader();const dec=new TextDecoder();
   while(true){const {done,value}=await reader.read();if(done)break;full+=dec.decode(value);el.innerHTML=fmt(full);}
   loadChats();
 }
 document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
-if(token) init(); else document.getElementById('auth').style.display='flex';
+init();
 </script>
 </body>
 </html>
