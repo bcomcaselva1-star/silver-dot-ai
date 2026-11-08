@@ -31,7 +31,7 @@ input{flex:1;padding:12px;border-radius:10px;border:1px solid #444;background:#1
 <div class="main"><div class="top"><b>Silver Dot AI 3000</b><span id="plan"></span></div><div id="msgs"></div><div class="box"><input id="inp" placeholder="Ask anything..."><button class="send" onclick="send()">Send</button></div></div>
 <div id="auth"><div class="card"><h1>✦ Silver Dot AI 3000</h1><p style="text-align:center;color:#aaa;margin:0">Login to continue</p><input id="email" placeholder="Email"><input id="pass" type="password" placeholder="Password (8+ chars)"><button onclick="doAuth()">Continue</button><div class="link" onclick="toggle()">New here? Create account</div><div id="err" style="color:#ff6666;text-align:center"></div></div></div>
 <script>
-let mode='login', token=localStorage.getItem('sd_token')||'', chatId=null;
+let mode='login', token='guest', chatId=null;
 function toggle(){mode=mode==='login'?'signup':'login';document.querySelector('.link').textContent=mode==='login'?'New here? Create account':'Already have account? Login';}
 async function doAuth(){
   const email=document.getElementById('email').value, password=document.getElementById('pass').value;
@@ -39,7 +39,7 @@ async function doAuth(){
   const d=await r.json(); if(!r.ok){document.getElementById('err').textContent=d.error;return;}
   token=d.token; localStorage.setItem('sd_token',token); init();
 }
-function logout(){localStorage.removeItem('sd_token');location.reload();}
+function logout(){return;}
 async function init(){
   const r=await fetch('/api/me',{headers:{Authorization:'Bearer '+token}});
   if(!r.ok){document.getElementById('auth').style.display='flex';return;}
