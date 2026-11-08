@@ -41,11 +41,8 @@ async function doAuth(){
 }
 function logout(){return;}
 async function init(){
-  const r=await fetch('/api/me',{headers:{Authorization:'Bearer '+token}});
-  if(!r.ok){document.getElementById('auth').style.display='flex';return;}
-  const d=await r.json(); document.getElementById('auth').style.display='none';
-  document.getElementById('me').textContent=d.email; document.getElementById('plan').textContent=d.plan+' | Used '+d.used+' / '+d.limit;
-  loadChats();
+  document.getElementById('auth').style.display='none';
+  return;
 }
 async function loadChats(){
   const r=await fetch('/api/chats',{headers:{Authorization:'Bearer '+token}}); const cs=await r.json();
