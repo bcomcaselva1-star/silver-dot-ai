@@ -2,8 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const Groq = require('groq-sdk');
 
 const app = express();
@@ -11,81 +9,84 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
-const JWT_SECRET = process.env.JWT_SECRET || 'silver-dot-ai-3000-secret';
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Simple JSON Database - No install needed!
+// Simple JSON Database
 const DB_FILE = path.join(__dirname, 'db.json');
 let DB = { users: [], chats: [], messages: [] };
 if (fs.existsSync(DB_FILE)) { try { DB = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch(e){} }
-function saveDB(){ fs.writeFileSync(DB_FILE, JSON.stringify(DB)); }
+function saveDB(){ try{ fs.writeFileSync(DB_FILE, JSON.stringify(DB)); }catch(e){} }
 
-const PLANS = { free: { model: 'llama-3.3-70b-versatile', daily: 20 }, pro: { model: 'llama-3.3-70b-versatile', daily: 1000 } };
+// GUEST USER - No Login Needed
+const GUEST_ID = 'guest-1';
+function getChats(){ return DB.chats.filter(c => c.userId === GUEST_ID); }
 
-function auth(req, res, next){
-  const h = req.headers.authorization || '';
-  const token = h.replace('Bearer ', '');
-  if(!token) return next();
-  try{ req.user = jwt.verify(token, JWT_SECRET); }catch(e){}
-  next();
-}
-app.use(auth);
-
-// Register
-app.post('/api/register', async (req, res) => {
-  const { email, password, name } = req.body || {};
-  if(!email || !password) return res.status(400).json({ error: 'Email and password required' });
-  if(DB.users.find(u => u.email === email)) return res.status(400).json({ error: 'User already exists' });
-  const hash = await bcrypt.hash(password, 10);
-  const user = { id: Date.now().toString(), email, name: name || email.split('@')[0], password: hash, plan: 'free', createdAt: new Date().toISOString() };
-  DB.users.push(user); saveDB();
-  const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET);
-  res.json({ token, user: { id: user.id, email: user.email, name: user.name, plan: user.plan } });
+// --- CHATS ---
+app.get('/api/chats', (req, res) => {
+  res.json(getChats().map(c => ({ id: c.id, title: c.title || 'Chat' })));
 });
 
-// Login
-app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body || {};
-  const user = DB.users.find(u => u.email === email);
-  if(!user) return res.status(400).json({ error: 'User not found' });
-  const ok = await bcrypt.compare(password, user.password);
-  if(!ok) return res.status(400).json({ error: 'Wrong password' });
-  const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET);
-  res.json({ token, user: { id: user.id, email: user.email, name: user.name, plan: user.plan } });
+app.get('/api/chats/:id', (req, res) => {
+  const msgs = DB.messages.filter(m => String(m.chatId) === String(req.params.id));
+  res.json(msgs.map(m => ({ role: m.role, content: m.content })));
+});
+
+app.delete('/api/chats/:id', (req, res) => {
+  DB.chats = DB.chats.filter(c => String(c.id) !== String(req.params.id));
+  DB.messages = DB.messages.filter(m => String(m.chatId) !== String(req.params.id));
+  saveDB(); res.json({ ok: true });
 });
 
 app.get('/api/me', (req, res) => {
-  if(!req.user) return res.status(401).json({ error: 'No token' });
-  const user = DB.users.find(u => u.id === req.user.id);
-  if(!user) return res.status(404).json({ error: 'Not found' });
-  res.json({ id: user.id, email: user.email, name: user.name, plan: user.plan });
+  res.json({ id: GUEST_ID, email: 'guest@silverdot.ai', name: 'Guest', plan: 'pro' });
 });
 
-// CHAT - GROQ FREE
+// --- CHAT - GROQ - STREAMING ---
 async function handleChat(req, res){
   try{
     const body = req.body || {};
-    let messages = body.messages || [];
-    if(body.message) messages = [{ role: 'user', content: body.message }];
-    if(body.prompt) messages = [{ role: 'user', content: body.prompt }];
-    if(!messages.length) return res.status(400).json({ error: 'No message' });
+    let userText = body.message || body.prompt || '';
+    if(body.messages && body.messages.length) userText = body.messages[body.messages.length-1].content || userText;
+    if(!userText) return res.status(400).json({ error: 'No message' });
 
-    const clean = messages.map(m => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: typeof m.content === 'string' ? m.content : (m.content?.[0]?.text || String(m.content))
-    }));
+    if(!process.env.GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY missing in Render Env! Add it!' });
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'system', content: 'You are Silver Dot AI, a helpful AI assistant.' }, ...clean],
+    // Get or Create Chat
+    let chatId = body.chatId;
+    let chat = DB.chats.find(c => String(c.id) === String(chatId));
+    if(!chat){
+      chatId = Date.now();
+      chat = { id: chatId, userId: GUEST_ID, title: userText.slice(0, 40), createdAt: new Date().toISOString() };
+      DB.chats.unshift(chat);
+    }
+    DB.messages.push({ chatId, role: 'user', content: userText });
+    saveDB();
+
+    // STREAMING - Frontend expects this!
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('X-Chat-Id', String(chatId));
+
+    const stream = await groq.chat.completions.create({
+      model: 'openai/gpt-oss-120b',
+      messages: [{ role: 'system', content: 'You are Silver Dot AI, a helpful AI assistant.' }, { role: 'user', content: userText }],
       max_tokens: 2000,
       temperature: 0.7,
+      stream: true,
     });
-    const reply = completion.choices[0]?.message?.content || 'Sorry, no reply';
-    res.json({ reply, response: reply, content: reply, message: reply, text: reply, choices: [{ message: { content: reply, role: 'assistant' } }] });
+
+    let full = '';
+    for await (const chunk of stream){
+      const txt = chunk.choices[0]?.delta?.content || '';
+      if(txt){ full += txt; res.write(txt); }
+    }
+    DB.messages.push({ chatId, role: 'assistant', content: full });
+    saveDB();
+    res.end();
   } catch(e){
-    console.error(e);
-    res.status(500).json({ error: e.message });
+    console.error('CHAT ERROR:', e.message);
+    if(!res.headersSent) return res.status(500).json({ error: e.message });
+    res.write('[Error: ' + e.message + ']');
+    res.end();
   }
 }
 app.post('/api/chat', handleChat);
